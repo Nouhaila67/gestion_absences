@@ -1,13 +1,23 @@
+from django.contrib.auth import get_user_model
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from django.http import HttpResponse
-from .models import User, Presence
+from apps.students.models import User, Presence
 import qrcode
 from io import BytesIO
 
+# Utiliser le modèle d'utilisateur personnalisé
+User = get_user_model()
 
-# Enregistrer la présence d'un étudiant
+# Test: Création d'un utilisateur et d'une présence
+user = User.objects.create_user(username='testuser', password='password123')
+print(user.username)
+student = User.objects.first()  # Choisir un étudiant existant
+presence = Presence.objects.create(student=student, course_name="Maths")
+print(presence)
+
+# Vue pour enregistrer la présence
 @api_view(['POST'])
 def register_presence(request):
     student_id = request.data.get('student_id')
@@ -17,21 +27,25 @@ def register_presence(request):
         return Response({'error': 'Student ID and Course name are required'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        student: User = User.objects.get(id=student_id)
+        student = User.objects.get(id=student_id, role='student')  # Utilisation de User pour trouver l'étudiant
         Presence.objects.create(student=student, course_name=course_name)
         return Response({'message': 'Presence registered successfully'}, status=status.HTTP_201_CREATED)
     except User.DoesNotExist:
         return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
-# Générer un QR Code pour un étudiant avec paramètre dans l'URL
+# Vue pour générer un QR code
 @api_view(['GET'])
-def generate_qr_code(request, student_id: int):
+def generate_qr_code(request, student_id):
     try:
-        student: User = User.objects.get(id=student_id)
+        # Vérifier que student_id est bien un entier
+        if not str(student_id).isdigit():
+            return Response({'error': 'Invalid student ID'}, status=status.HTTP_400_BAD_REQUEST)
+
+        student = User.objects.get(id=student_id)  # Utilise User ici
 
         # Générer les données QR
-        qr_data = f"student_id:{student.id}"
+        qr_data = f"student_id:{student.pk}"
         qr = qrcode.QRCode(version=1, box_size=10, border=5)
         qr.add_data(qr_data)
         qr.make(fit=True)
@@ -39,10 +53,10 @@ def generate_qr_code(request, student_id: int):
         # Enregistrer l'image en mémoire
         buffer = BytesIO()
         img = qr.make_image(fill='black', back_color='white')
-        img.save(buffer, format='PNG')
+        img.save(buffer, "PNG")
         buffer.seek(0)
 
         return HttpResponse(buffer.read(), content_type='image/png')
 
-    except User.DoesNotExist:
+    except User.DoesNotExist:  # Utilise User ici
         return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
